@@ -1,73 +1,57 @@
-#
-# This is the server logic of a Shiny web application. You can run the 
-# application by clicking 'Run App' above.
-#
-# Find out more about building applications with Shiny here:
-# 
-#    http://shiny.rstudio.com/
-#
-
 library(shiny)
 library(shinydashboard)
+library(dplyr)
+library(timevis)
+library(tidyverse)
+library(lubridate)
+library(ggplot2)
 
-# Define server logic required to draw a histogram
-server <- function(input, output) {
-  set.seed(122)
-  histdata <- rnorm(500)
-  
-  output$messageMenu <- renderMenu({
-    # Code to generate each of the messageItems here, in a list. This assumes
-    # that messageData is a data frame with two columns, 'from' and 'message'.
-    msgs <- apply(messageData, 1, function(row) {
-      messageItem(from = row[["from"]], message = row[["message"]])
-    })
-    
-    # This is equivalent to calling:
-    #   dropdownMenu(type="messages", msgs[[1]], msgs[[2]], ...)
-    dropdownMenu(type = "messages", .list = msgs)
+termine  <- readRDS('./termine.RDS')
+
+by_modality <- termine %>% 
+  group_by(Modality) %>% 
+  summarise(count=n()) %>% 
+  mutate(id=c(1:4))
+
+mergedata <- merge(termine, by_modality, all=TRUE) %>% 
+  mutate(Termin_end = Termin + minutes(30) + (str_count(Bez, "&")* minutes(10)))    # edit MG
+
+mergedata$period <- as.Date(mergedata$Termin)
+
+myfunc <- function(inputdate) {
+  per_day <- filter(mergedata, period >= inputdate & period <= inputdate)
+  return(per_day)
+}
+
+server <- function(input, output, session) {
+  observeEvent(input$date, {
+    js$pageCol(input$date)
   })
   
-  output$progressBox <- renderInfoBox({
-    infoBox(
-      "Progress", paste0(25 + input$count, "%"), icon = icon("list"),
-      color = "purple"
+  output$timeline <- renderTimevis(
+    timevis(data = data.frame(
+      content = c(myfunc(input$date)[['Bez']]),
+      start   = c(myfunc(input$date)[['Termin']]),
+      end   = c(myfunc(input$date)[['Termin_end']]),                           # edit MG
+      group = c(myfunc(input$date)[['id']])),
+      groups = data.frame(id = 1:4, content = c(by_modality[['Modality']]))
     )
-  })
-  output$approvalBox <- renderInfoBox({
-    infoBox(
-      "Approval", "80%", icon = icon("thumbs-up", lib = "glyphicon"),
-      color = "yellow"
-    )
-  })
-  output$progressBox1 <- renderValueBox({
-    valueBox(
-      paste0(25 + input$count1, "%"), "Progress", icon = icon("list"),
-      color = "purple"
-    )
-  })
-  
-  output$approvalBox1 <- renderValueBox({
-    valueBox(
-      "80%", "Approval", icon = icon("thumbs-up", lib = "glyphicon"),
-      color = "yellow"
-    )
-  })
-  # Same as above, but with fill=TRUE
-  output$progressBox2 <- renderInfoBox({
-    infoBox(
-      "Progress", paste0(25 + input$count, "%"), icon = icon("list"),
-      color = "purple", fill = TRUE
-    )
-  })
-  output$approvalBox2 <- renderInfoBox({
-    infoBox(
-      "Approval", "80%", icon = icon("thumbs-up", lib = "glyphicon"),
-      color = "yellow", fill = TRUE
-    )
-  })
+  )
   
   output$plot1 <- renderPlot({
-    data <- histdata[seq_len(input$slider)]
-    hist(data)
+    termine %>% group_by(day = as.Date(Termin), ArztID, Modality) %>% count() %>% 
+      filter(day == input$date) %>% 
+      ggplot(aes(x = ArztID, y = n, fill = Modality)) +
+      geom_col()
   })
+  
+  output$plot2 <- renderPlot({
+    termine %>% group_by(day = as.Date(Termin), ArztID, Modality) %>% count() %>% 
+      filter(day == input$date) %>% 
+      ggplot(aes(x = ArztID, y = n, fill = Modality)) +
+      geom_col()
+  })
+  
+  
+  
 }
